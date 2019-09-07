@@ -9,7 +9,6 @@ import uuid
 import time
 import json
 import yaml
-import boto3
 import requests
 import jsbeautifier
 import zipfile
@@ -17,25 +16,9 @@ import io
 import hashlib
 import string
 
-from celerylib import app
-from celery.result import AsyncResult
-from celery.result import allow_join_result
 from bs4 import BeautifulSoup
-from celery import Task
-from io import BytesIO
 from libs.cspparse import *
-from botocore.exceptions import ClientError
 from distutils.version import LooseVersion, StrictVersion
-import importlib
-
-importlib.reload(sys)
-sys.setdefaultencoding("utf8")
-
-S3_CLIENT = boto3.client(
-    "s3",
-    aws_access_key_id=os.environ.get("aws_access_key"),
-    aws_secret_access_key=os.environ.get("aws_secret_key"),
-)
 
 # Taken from https://stackoverflow.com/questions/2319019/using-regex-to-remove-comments-from-source-files
 def remove_comments(string):
@@ -204,173 +187,8 @@ This host contains a JSONP endpoint which can be used to bypass Content Security
 <script src="https://ru.wikipedia.org/w/api.php?action=opensearch&format=json&limit=5&callback=test&search=test"></script>
 		""",
         ),
-        # ( "", """
-        # """ ),
     ]
 }
-
-# First load all JSON files into a tree structure for future use
-CHROME_DOC_DIR = "./chromium-docs/"
-
-
-def get_chrome_doc_dict(path_to_docs_dir):
-    """
-	Grab the JSON files in Chromium source and parse them into a tree for autodoc
-	https://github.com/chromium/chromium/tree/master/chrome/common/extensions/api
-	"""
-    chrome_doc_dict = {}
-    for root, dirnames, filenames in os.walk(path_to_docs_dir):
-        for filename in filenames:
-            if filename.endswith(".json") and not filename.startswith("_"):
-                file_path = os.path.join(root, filename)
-                api_function_list = get_json_from_file(file_path, True)
-
-                for api_function in api_function_list:
-                    chrome_doc_dict[api_function["namespace"]] = api_function
-
-    return chrome_doc_dict
-
-
-def get_api_call_targets(chrome_doc_dict):
-    """
-	Now generate a list of target strings
-
-	[
-		{
-			"match_string": "",
-			"comment": "",
-		}
-	]
-	"""
-    api_call_targets = []
-    for api_name, api_data in chrome_doc_dict.items():
-        if "functions" in api_data and not "Private" in api_name:
-            combined_list = []
-
-            if "events" in api_data:
-                combined_list = combined_list + api_data["events"]
-            if "functions" in api_data:
-                combined_list = combined_list + api_data["functions"]
-
-            for function_data in combined_list:
-                comment_data = (
-                    "{{WHITESPAE_PLACEHOLDER}}// chrome."
-                    + api_name
-                    + "."
-                    + function_data["name"]
-                    + "("
-                )
-
-                if "parameters" in function_data:
-                    parameter_list = []
-                    for parameter in function_data["parameters"]:
-                        parameter_list.append(parameter["name"])
-
-                    comment_data += ", ".join(parameter_list)
-                    comment_data += ")\n"
-
-                    for parameter in function_data["parameters"]:
-                        if "type" in parameter:
-                            comment_data += (
-                                "{{WHITESPAE_PLACEHOLDER}}// @param "
-                                + parameter["type"]
-                                + " {"
-                                + parameter["name"]
-                                + "} "
-                            )
-                        else:
-                            comment_data += (
-                                "{{WHITESPAE_PLACEHOLDER}}// @param unknown {"
-                                + parameter["name"]
-                                + "} "
-                            )
-
-                        if "description" in parameter:
-                            comment_data += parameter["description"]
-
-                        comment_data += "\n"
-
-                        if (
-                            "type" in parameter
-                            and parameter["type"] == "object"
-                            and "properties" in parameter
-                        ):
-                            for object_name, object_value in parameter[
-                                "properties"
-                            ].items():
-                                comment_data += (
-                                    "{{WHITESPAE_PLACEHOLDER}}// -> @property "
-                                )
-                                if "type" in parameter:
-                                    comment_data += "{" + parameter["type"] + "} "
-                                else:
-                                    comment_data += "{unknown} "
-
-                                comment_data += object_name + " "
-
-                                if "description" in object_value:
-                                    comment_data += object_value["description"]
-
-                                comment_data += "\n"
-
-                        if (
-                            "type" in parameter
-                            and parameter["type"] == "function"
-                            and "parameters" in parameter
-                        ):
-                            for function_value in parameter["parameters"]:
-                                comment_data += (
-                                    "{{WHITESPAE_PLACEHOLDER}}// -> @argument "
-                                )
-
-                                if "type" in function_value:
-                                    comment_data += "{" + parameter["type"] + "} "
-                                else:
-                                    comment_data += "{unknown} "
-
-                                comment_data += function_value["name"] + " "
-
-                                if "description" in function_value:
-                                    comment_data += function_value["description"]
-
-                                comment_data += "\n"
-
-                else:
-                    comment_data += ")\n"
-
-                if "description" in function_data:
-                    comment_data += (
-                        "{{WHITESPAE_PLACEHOLDER}}// Description: "
-                        + re.sub("<[^<]+?>", "", function_data["description"])
-                        + "\n"
-                    )
-
-                comment_data += (
-                    "{{WHITESPAE_PLACEHOLDER}}// https://developer.chrome.com/extensions/"
-                    + api_name
-                    + "#method-"
-                    + function_data["name"]
-                )
-
-                api_call_targets.append(
-                    {
-                        "match_string": "chrome."
-                        + api_name
-                        + "."
-                        + function_data["name"]
-                        + "(",
-                        "comment": comment_data,
-                    }
-                )
-
-    return api_call_targets
-
-
-CHROME_DOC_LIST = get_chrome_doc_dict(CHROME_DOC_DIR)
-
-# Now convert the tree into a call target list
-API_CALL_TARGETS = get_api_call_targets(CHROME_DOC_LIST)
-
 
 class RetireJS(object):
     """
@@ -393,7 +211,7 @@ class RetireJS(object):
 
         self.definitions = cleaned_definitions
 
-    def regex_version_match(self, definition_name, regex_list, target_string):
+    def regex_version_match(self, definition_name, regex_list, target_bytes):
         """
 		Check a given target string for a version match, return a list of matches
 		and their respective versions.
@@ -404,9 +222,11 @@ class RetireJS(object):
             filecontent_matcher = filecontent_matcher.replace(
                 "(§§version§§)", "[a-z0-9\.\-]+"
             )
-            match = re.search(filecontent_matcher, target_string)
+            filecontent_matcher = bytes(filecontent_matcher, 'utf-8')
+            match = re.search(filecontent_matcher, target_bytes)
             if match:
-                version_match = str(match.group())
+                # convert version match to str and operate on strings from now on
+                version_match = str(match.group(), 'utf-8')
                 for matcher_part in matcher_parts:
                     matcher_match = re.search(matcher_part, version_match)
                     if matcher_match:
@@ -566,107 +386,17 @@ RETIRE_JS = RetireJS(RETIRE_JS_DEFINITIONS)
 
 
 def prettify_json(input_dict):
-    return json.dumps(input_dict, sort_keys=True, indent=4, separators=(",", ": "))
+    return bytes(json.dumps(input_dict, sort_keys=True, indent=4, separators=(",", ": ")), 'utf-8')
 
 
 def pprint(input_dict):
     print((json.dumps(input_dict, sort_keys=True, indent=4, separators=(",", ": "))))
 
 
-def upload_to_s3(content_type, remote_path, body):
-    object_exists = True
-    try:
-        response = S3_CLIENT.head_object(
-            Bucket=os.environ.get("extension_s3_bucket"), Key=remote_path
-        )
-    except ClientError as e:
-        if int(e.response["Error"]["Code"]) == 404:
-            object_exists = False
-
-    if object_exists:
-        print("It already exists, not uploading...")
-        return os.environ.get("extension_s3_bucket") + "/" + remote_path
-
-    print(
-        ("Uploading to: " + os.environ.get("extension_s3_bucket") + "/" + remote_path)
-    )
-    S3_CLIENT.put_object(
-        ACL="public-read",
-        ContentType=content_type,
-        Bucket=os.environ.get("extension_s3_bucket"),
-        Key=remote_path,
-        Body=body,
-    )
-    print("Upload finished!")
-    return os.environ.get("extension_s3_bucket") + "/" + remote_path
-
-
-@app.task(
-    name="tarnishworker.tasks.get_chrome_extension_metadata",
-    time_limit=(30 * 1),  # Don't wait more then 30 minutes.
-)
-def get_chrome_extension_metadata(extension_id):
-    """
-	Get Chrome extension metadata from the Chrome store.
-	"""
-    return_metadata = {}
-
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.10; rv:49.0) Gecko/20100101 Firefox/49.0",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
-        "Accept-Encoding": "gzip, deflate, br",
-        "X-Same-Domain": "1",
-        "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
-        "Referer": "https://chrome.google.com/",
-    }
-
-    try:
-        response = requests.get(
-            "https://chrome.google.com/webstore/detail/extension-name/"
-            + extension_id
-            + "?hl=en",
-            headers=headers,
-            timeout=(15),
-        )
-    except:
-        raise self.retry()
-
-    soup = BeautifulSoup(response.text, "html.parser")
-
-    version_element = soup.find("meta", {"itemprop": "version"})
-    return_metadata["version"] = str(version_element.get("content"))
-
-    name_element = soup.find("meta", {"itemprop": "name"})
-    return_metadata["name"] = str(name_element.get("content"))
-
-    url_element = soup.find("meta", {"itemprop": "url"})
-    return_metadata["url"] = str(url_element.get("content"))
-
-    image_element = soup.find("meta", {"itemprop": "image"})
-    return_metadata["image"] = str(image_element.get("content"))
-
-    download_count_element = soup.find("meta", {"itemprop": "interactionCount"})
-    return_metadata["download_count"] = int(
-        str(download_count_element.get("content"))
-        .replace("UserDownloads:", "")
-        .replace(",", "")
-        .replace("+", "")
-    )
-
-    os_element = soup.find("meta", {"itemprop": "operatingSystem"})
-    return_metadata["os"] = str(os_element.get("content"))
-
-    rating_element = soup.find("meta", {"itemprop": "ratingValue"})
-    return_metadata["rating"] = float(rating_element.get("content"))
-
-    rating_count_element = soup.find("meta", {"itemprop": "ratingCount"})
-    return_metadata["rating_count"] = int(rating_count_element.get("content"))
-
-    description_element = soup.find("div", {"itemprop": "description"})
-    return_metadata["short_description"] = str(description_element.text)
-
-    return return_metadata
+def write_to_fs(path, data):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "wb") as f:
+        f.write(data)
 
 
 def get_uuid():
@@ -678,6 +408,9 @@ def pprint(input_dict):
 
 
 def beautified_js(input_js):
+    if isinstance(input_js, bytes):
+        input_js = str(input_js, 'utf-8')
+
     options = jsbeautifier.default_options()
     options.indent_size = 4
     return jsbeautifier.beautify(input_js, options)
@@ -818,12 +551,7 @@ def get_lowercase_list(input_list):
         return_list.append(item.lower())
     return return_list
 
-
-@app.task(
-    name="tarnishworker.tasks.get_report_data",
-    time_limit=(60 * 30),  # Don't wait more then 30 minutes.
-)
-def get_report_data(chrome_extension_id, chrome_extension_name):
+def get_report_data(chrome_extension_id, output_path):
     report_data = {
         "extension_id": chrome_extension_id,
         "manifest": {},
@@ -834,9 +562,6 @@ def get_report_data(chrome_extension_id, chrome_extension_name):
         "web_accessible_other": [],
         "active_pages": [],
         "scripts_scan_results": {},
-        "s3_extension_download_link": "",
-        "s3_beautified_extension_download_link": "",
-        # "s3_autodoc_extension_download_link": "",
         "metadata": {},
         "permissions_info": [],
     }
@@ -847,11 +572,9 @@ def get_report_data(chrome_extension_id, chrome_extension_name):
     chrome_extension_zip = zipfile.ZipFile(chrome_extension_handler)
 
     # Create a new .zip for the beautified version
-    beautified_zip_handler = io.StringIO()
-    # autodoc_zip_handler = StringIO.StringIO()
-    regular_zip_handler = io.StringIO()
+    beautified_zip_handler = io.BytesIO()
+    regular_zip_handler = io.BytesIO()
     beautified_extension = zipfile.ZipFile(beautified_zip_handler, mode="w")
-    # autodoc_extension = zipfile.ZipFile( autodoc_zip_handler, mode="w" )
     regular_extension = zipfile.ZipFile(regular_zip_handler, mode="w")
 
     # List of file extensions that will be written (prettified) later.
@@ -872,13 +595,6 @@ def get_report_data(chrome_extension_id, chrome_extension_name):
         regular_extension.writestr(file_path, file_data)
 
     manifest_data = json.loads(chrome_extension_zip.read("manifest.json"))
-
-    # Upload manifest.json to S3 for later aggregation
-    upload_to_s3(
-        "application/json",
-        "manifests/" + chrome_extension_id + ".json",
-        prettify_json(manifest_data),
-    )
 
     # Parse CSP policy
     if "content_security_policy" in manifest_data:
@@ -1103,14 +819,8 @@ def get_report_data(chrome_extension_id, chrome_extension_name):
         soup = BeautifulSoup(page_contents, "html.parser")
 
         # As long as we have the .html file open, let's update the prettified extension
-        bytes_beautified = bytes(soup.prettify())
+        bytes_beautified = bytes(soup.prettify(), 'utf-8')
         beautified_extension.writestr(html_file_path, bytes_beautified)
-        """
-		autodoc_extension.writestr(
-			html_file_path,
-			bytes_beautified
-		)
-		"""
 
         script_tags = soup.find_all("script")
 
@@ -1135,7 +845,7 @@ def get_report_data(chrome_extension_id, chrome_extension_name):
             {
                 "is_web_accessible": is_web_accessible,
                 "path": html_file_path,
-                "original_html": page_contents,
+                "original_html": str(page_contents, 'utf-8'),
                 "included_script_paths": included_script_paths,
                 "prettified_html": soup.prettify(),
             }
@@ -1216,29 +926,11 @@ def get_report_data(chrome_extension_id, chrome_extension_name):
 
             # Beautify JS
             new_beautified_js = beautified_js(javascript_data)
+            new_beautified_js = bytes(new_beautified_js, 'utf-8')
             print("JS beautified!")
 
-            """
-			print( "Autodocing some JS..." )
-
-			# AutoDoc JS
-			autodoc_js = get_autodoc_js(
-				new_beautified_js,
-				API_CALL_TARGETS
-			)
-			print( "Autodoc-ed some js!" )
-			"""
-
             # As long was we have it, write the beautified JS to the beautified extension .zip
-            beautified_extension.writestr(chrome_file_path, bytes(new_beautified_js))
-
-            # Write the AutoDoc version as well
-            """
-			autodoc_extension.writestr(
-				chrome_file_path,
-				bytes( autodoc_js )
-			)
-			"""
+            beautified_extension.writestr(chrome_file_path, new_beautified_js)
 
             """
 			If we have a blacklisted word in our filename skip the JavaScript file.
@@ -1285,118 +977,39 @@ def get_report_data(chrome_extension_id, chrome_extension_name):
 
     print("Extension analysis finished.")
 
-    # S3 download link(s) for the extension
-    beautified_end_url = (
-        "/"
-        + format_filename(chrome_extension_name)
-        + "_beautified_"
-        + chrome_extension_id
-        + "_"
-        + report_data["manifest"]["version"]
-        + ".zip"
-    )
-    report_data["s3_extension_download_link"] = (
-        "https://"
-        + os.environ.get("extension_s3_bucket")
-        + ".s3.amazonaws.com/crx/"
-        + chrome_extension_id
-        + "/"
-        + chrome_extension_id
-        + "_"
-        + report_data["manifest"]["version"]
-        + ".zip"
-    )
-    # autodoc_end_url = "/" + format_filename( chrome_extension_name ) + "_autodoc_" + chrome_extension_id + "_" + report_data[ "manifest" ][ "version" ] + ".zip"
-
-    # Format filename for beautified extension
-    report_data["s3_beautified_extension_download_link"] = (
-        "https://"
-        + os.environ.get("extension_s3_bucket")
-        + ".s3.amazonaws.com/crx/"
-        + chrome_extension_id
-        + beautified_end_url
-    )
-    # report_data[ "s3_autodoc_extension_download_link" ] = "https://" + os.environ.get( "extension_s3_bucket" ) + ".s3.amazonaws.com/crx/" + chrome_extension_id + autodoc_end_url
-
     # Close up handlers
+    chrome_extension_handler.close()
     beautified_extension.close()
-    # autodoc_extension.close()
     regular_extension.close()
 
-    # Backup Chrome extensions to S3
-    upload_to_s3(
-        "application/zip",
-        "crx/"
-        + chrome_extension_id
-        + "/"
-        + chrome_extension_id
-        + "_"
-        + report_data["manifest"]["version"]
-        + ".zip",
+    manifest_path   = output_path + "/" + chrome_extension_id + "/manifest_" + report_data["manifest"]["version"] + ".json"
+    report_path     = output_path + "/" + chrome_extension_id + "/report_" + report_data["manifest"]["version"] + ".json"
+    extension_path  = output_path + "/" + chrome_extension_id + "/extension_" + report_data["manifest"]["version"] + ".zip"
+    beautified_path = output_path + "/" + chrome_extension_id + "/beautified_extension_" + report_data["manifest"]["version"] + ".zip"
+
+    # Upload manifest.json to file system for later aggregation
+    write_to_fs(
+        manifest_path,
+        prettify_json(manifest_data),
+    )
+
+    # Backup Chrome extensions to file system
+    report_data["extension_path"] = write_to_fs(
+        extension_path,
         regular_zip_handler.getvalue(),
     )
-    upload_to_s3(
-        "application/zip",
-        "crx/" + chrome_extension_id + beautified_end_url,
+    report_data["beautified_extension_path"] = write_to_fs(
+        beautified_path,
         beautified_zip_handler.getvalue(),
     )
-    """
-	upload_to_s3(
-		"application/zip",
-		"crx/" + chrome_extension_id + autodoc_end_url,
-		autodoc_zip_handler.getvalue()
-	)
-	"""
 
-    chrome_extension_handler.close()
+    write_to_fs(
+        report_path,
+        prettify_json(report_data),
+    )
 
     return report_data
 
-
-def get_autodoc_js(input_js, api_call_targets):
-    """
-	Get the final autodoc data for some given JS
-	"""
-    input_js = str(input_js, errors="ignore")
-
-    autodoc_js = ""
-    # Optimization
-    trimmed_api_call_targets = []
-    for api_call_target in api_call_targets:
-        if api_call_target["match_string"] in input_js:
-            trimmed_api_call_targets.append(api_call_target)
-
-    for line in input_js.split("\n"):
-        first_comment = True
-        for api_call_target in api_call_targets:
-            if api_call_target["match_string"] in line:
-
-                # Get whitespace of line to use for comments
-                whitespace_match = re.search("[ ]+", line)
-                if whitespace_match:
-                    whitespace = whitespace_match.group()
-                else:
-                    whitespace = ""
-
-                if first_comment:
-                    first_comment = False
-                    autodoc_js += (
-                        api_call_target["comment"].replace(
-                            "{{WHITESPAE_PLACEHOLDER}}", whitespace
-                        )
-                        + "\n"
-                    )
-                else:
-                    autodoc_js += (
-                        "\n"
-                        + api_call_target["comment"].replace(
-                            "{{WHITESPAE_PLACEHOLDER}}", whitespace
-                        )
-                        + "\n"
-                    )
-        autodoc_js += line + "\n"
-
-    return autodoc_js
 
 
 def get_context_block(javascript_lines_array, i):
@@ -1565,6 +1178,17 @@ def get_chrome_extension(extension_id):
         headers=headers,
         timeout=(60 * 2),
     )
-    chrome_extension_handler = BytesIO(response.content)
+    chrome_extension_handler = io.BytesIO(response.content)
 
     return chrome_extension_handler
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description='Analyzes Chrome extensions.')
+    parser.add_argument('input', type=str, help='an extension ID or path to source code')
+    parser.add_argument('output', type=str, help='an output path')
+
+    args = parser.parse_args()
+    get_report_data(args.input, args.output)
+

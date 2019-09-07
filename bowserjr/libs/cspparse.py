@@ -6,7 +6,7 @@ A basic Content Security Policy parser.
 # pylint: disable=C0103,C0111,R0201
 
 from collections import defaultdict
-from urlparse import urlparse
+from urllib.parse import urlparse
 
 ### Constants
 BASE_URI = "base-uri"
@@ -136,7 +136,7 @@ class ContentSecurityPolicy(object):
     def is_report_only_mode(self):
         return self.header_name.endswith("report-only")
 
-    def iteritems(self):
+    def items(self):
         """ Similar to a dictionary, iterates tuples of key/value pairs """
         for key in self.CONTENT_DIRECTIVES:
             yield (key, self[key],)
