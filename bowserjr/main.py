@@ -13,7 +13,7 @@ import boto3
 import requests
 import jsbeautifier
 import zipfile
-import StringIO
+import io
 import hashlib
 import string
 
@@ -26,8 +26,9 @@ from io import BytesIO
 from libs.cspparse import *
 from botocore.exceptions import ClientError
 from distutils.version import LooseVersion, StrictVersion
+import importlib
 
-reload( sys )  
+importlib.reload( sys )  
 sys.setdefaultencoding( "utf8" )
 
 S3_CLIENT = boto3.client(
@@ -194,7 +195,7 @@ def get_api_call_targets( chrome_doc_dict ):
 	]
 	"""
 	api_call_targets = []
-	for api_name, api_data in chrome_doc_dict.iteritems():
+	for api_name, api_data in chrome_doc_dict.items():
 		if "functions" in api_data and not "Private" in api_name:
 			combined_list = []
 
@@ -226,7 +227,7 @@ def get_api_call_targets( chrome_doc_dict ):
 						comment_data += "\n"
 
 						if "type" in parameter and parameter[ "type" ] == "object" and "properties" in parameter:
-							for object_name, object_value in parameter[ "properties" ].iteritems():
+							for object_name, object_value in parameter[ "properties" ].items():
 								comment_data += "{{WHITESPAE_PLACEHOLDER}}// -> @property "
 								if "type" in parameter:
 									comment_data += "{" + parameter[ "type" ] + "} "
@@ -286,7 +287,7 @@ class RetireJS( object ):
 		cleaned_definitions = {}
 
 		# Clean up dirty definitions
-		for definition_name, definition_value in definitions.iteritems():
+		for definition_name, definition_value in definitions.items():
 			is_useful = True
 			if not "vulnerabilities" in definition_value or len( definition_value[ "vulnerabilities" ] ) == 0:
 				is_useful = False
@@ -331,7 +332,7 @@ class RetireJS( object ):
 		matching_definitions = []
 
 		# In this first iteration we simply attempt to extract version numbers
-		for definition_name, definition_value in self.definitions.iteritems():
+		for definition_name, definition_value in self.definitions.items():
 			# File contents match
 			if "filecontent" in definition_value[ "extractors" ]:
 				filecontent_matches = self.regex_version_match(
@@ -380,7 +381,7 @@ class RetireJS( object ):
 
 		matching_definitions = []
 
-		for key, value in match_hash.iteritems():
+		for key, value in match_hash.items():
 			matching_definitions.append( value )
 
 		return matching_definitions
@@ -433,7 +434,7 @@ class RetireJS( object ):
 					}
 
 		# De-duplicate
-		for key, value in vulnerability_match_hash.iteritems():
+		for key, value in vulnerability_match_hash.items():
 			vulnerability_match.append(
 				value
 			)
@@ -446,7 +447,7 @@ def prettify_json( input_dict ):
     return json.dumps( input_dict, sort_keys=True, indent=4, separators=( ",", ": " ) )
 
 def pprint( input_dict ):
-    print( json.dumps( input_dict, sort_keys=True, indent=4, separators=( ",", ": " ) ) )
+    print(( json.dumps( input_dict, sort_keys=True, indent=4, separators=( ",", ": " ) ) ))
 
 def upload_to_s3( content_type, remote_path, body ):
 	object_exists = True
@@ -463,7 +464,7 @@ def upload_to_s3( content_type, remote_path, body ):
 		print( "It already exists, not uploading..." )
 		return os.environ.get( "extension_s3_bucket" ) + "/" + remote_path
 
-	print( "Uploading to: " + os.environ.get( "extension_s3_bucket" ) + "/" + remote_path )
+	print(( "Uploading to: " + os.environ.get( "extension_s3_bucket" ) + "/" + remote_path ))
 	S3_CLIENT.put_object(
 		ACL="public-read",
 		ContentType=content_type,
@@ -582,7 +583,7 @@ def get_uuid():
 	return str( uuid.uuid4() )
 
 def pprint( input_dict ):
-    print( json.dumps(input_dict, sort_keys=True, indent=4, separators=(',', ': ')) )
+    print(( json.dumps(input_dict, sort_keys=True, indent=4, separators=(',', ': ')) ))
 
 def beautified_js( input_js ):
 	options = jsbeautifier.default_options()
@@ -633,7 +634,7 @@ def get_csp_report( csp_object ):
 	Check content sources for wildcards '*' note that wilcard subdomains
 	are checked by `wildcardSubdomainContentSourceCheck'
 	"""
-	for directive, sources in csp_object.iteritems():
+	for directive, sources in csp_object.items():
 		if sources is None:
 			continue  # Skip unspecified directives in NO_FALLBACK
 		if any( src == "*" for src in sources ):
@@ -644,7 +645,7 @@ def get_csp_report( csp_object ):
 			})
 
 	""" Check content sources for wildcards subdomains '*.foo.com' """
-	for directive, sources in csp_object.iteritems():
+	for directive, sources in csp_object.items():
 		if sources is None:
 			continue
 		# This check is a little hacky but should work well
@@ -671,7 +672,7 @@ def get_csp_report( csp_object ):
 	Parses the CSP for known bypasses, this check is a little more
 	complicated, and calls into other subroutines.
 	"""
-	for directive, known_bypasses in CSP_KNOWN_BYPASSES.iteritems():
+	for directive, known_bypasses in CSP_KNOWN_BYPASSES.items():
 		bypasses = _bypassCheckDirective( csp_object, directive, known_bypasses )
 		for bypass in bypasses:
 			return_data.append({
@@ -728,7 +729,7 @@ def get_report_data( chrome_extension_id, chrome_extension_name ):
 		"permissions_info": [],
 	}
 
-	print( "Downloading extension ID " + chrome_extension_id + "..." )
+	print(( "Downloading extension ID " + chrome_extension_id + "..." ))
 	chrome_extension_handler = get_chrome_extension(
 		chrome_extension_id
 	)
@@ -738,9 +739,9 @@ def get_report_data( chrome_extension_id, chrome_extension_name ):
 	)
 
 	# Create a new .zip for the beautified version
-	beautified_zip_handler = StringIO.StringIO()
+	beautified_zip_handler = io.StringIO()
 	#autodoc_zip_handler = StringIO.StringIO()
-	regular_zip_handler = StringIO.StringIO()
+	regular_zip_handler = io.StringIO()
 	beautified_extension = zipfile.ZipFile( beautified_zip_handler, mode="w" )
 	#autodoc_extension = zipfile.ZipFile( autodoc_zip_handler, mode="w" )
 	regular_extension = zipfile.ZipFile( regular_zip_handler, mode="w" )
@@ -1097,7 +1098,7 @@ def get_report_data( chrome_extension_id, chrome_extension_name ):
 					vulnerability_results[ i ][ "file_path" ] = chrome_file_path
 					report_data[ "retirejs" ].append( vulnerability_results[i] )
 
-			print( "Beautifying some JS..." + chrome_file_path )
+			print(( "Beautifying some JS..." + chrome_file_path ))
 
 			# Beautify JS
 			new_beautified_js = beautified_js( javascript_data )
@@ -1205,7 +1206,7 @@ def get_autodoc_js( input_js, api_call_targets ):
 	"""
 	Get the final autodoc data for some given JS
 	"""
-	input_js = unicode( input_js, errors="ignore" )
+	input_js = str( input_js, errors="ignore" )
 
 	autodoc_js = ""
 	# Optimization
@@ -1293,7 +1294,7 @@ def check_indicators( i, javascript_file_path, indicator_type, javascript_lines,
 	return matches
 
 def scan_javascript( javascript_file_path, input_javascript, indicator_type, is_content_script, is_web_accessible_resource ):
-	input_javascript = unicode( input_javascript, errors="ignore" )
+	input_javascript = str( input_javascript, errors="ignore" )
 	matches = []
 	javascript_lines = input_javascript.splitlines()
 	for i in range( 0, len( javascript_lines ) ):
