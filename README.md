@@ -1,41 +1,39 @@
-# tarnish
+# BowserJr
 
-`tarnish` is a static-analysis tool to aid researchers in security reviews of Chrome extensions. It automates much of the regular grunt work and helps you quickly identify potential security vulnerabilities. This tool accompanies the research blog post which can be found [here](https://thehackerblog.com/kicking-the-rims-a-guide-for-securely-writing-and-auditing-chrome-extensions/index.html). If you don't want to go through the trouble of setting this up you can just use the tool at [`https://thehackerblog.com/tarnish/`](https://thehackerblog.com/tarnish/).
+![](logo.png)
 
-![](screenshot.png)
+`BowserJr` is a static analysis tool that automates the process of reviewing a Chrome extension for potential security issues. This tool is a rework of the tool [tarnish](https://github.com/mandatoryprogrammer/tarnish) that streamlines and expands the functionality.
 
-## Unpolished Notice & Notes
+## Usage
 
-It should be noted that this is an un-polished release. This is the same source as the deployment located at [`https://thehackerblog.com/tarnish/`](https://thehackerblog.com/tarnish/). In the future I may clean this up and make it much easier to run but I don't have time right now.
+```
+docker build -t bowserjr .
+docker run --rm -it -v "$(pwd):/host" -w /host bowserjr extension output
+```
 
-To set this up you'll need to understand how to:
+The tool takes two command line arguments: `input` and `output`.
 
-* Configure an S3 bucket
-* (if using auto-scaling) Set up ElasticBeanstalk
-* Use `docker-compose`
-* Set up redis
+`input` can be any of the following:
 
-The set up is a little complex due to a few design goals:
+* The Chrome extension's ID if pulling from the Chrome webstore
+* The path to the .zip file containing the Chrome extension source code
+* The path to the directory containing the Chrome extension source code
 
-* Effectively perform static against Chrome extensions
-* Automatically scale up to increased workload with more instances and scale down.
-* Work on a shoestring budget (thus the use of ElasticBeanstalk with Spot Instances).
+`output` is the desired path of the results of the tool.
 
-Some quick notes to help someone attempting to set this up:
+## Docker
 
-* `tarnish` makes use of Python Celery for analysis of extensions.
-* The Python Celery config uses redis as a broker (this will have to be created).
-*  The workers which process extension analysis jobs run on AWS ElasticBeanstalk spot instances. For those unfamiliar, spot instances are basically bidding on unused compute. This allows the service to run super cheaply.
-* The workers require at least an AWS `t2.medium` instance to operate.
-* The `tarnish` frontend is just a set of static files which is upload to a static web host configured S3 bucket.
+To avoid building the container yourself, use the pre-built container on [DockerHub](https://hub.docker.com/r/belladc/bowserjr).
 
-See the `docker-compose.yaml.example` for the environment variable configs. Ideally you'd run `./start.sh` and navigate to the static frontend to get things running. You can use S3 for the static site or just a simple static webserver like `python -m SimpleHTTPServer` (you'll have to modify the JavaScript files to ensure origin matches, etc.
+```
+docker run --rm -it -v "$(pwd):/host" -w /host belladc/bowserjr extension output
+```
 
 ## Features
-Pulls any Chrome extension from a provided Chrome webstore link.
+Pulls any Chrome extension from a provided Chrome webstore link or path to a local .zip file or directory with source code.
 
 * `manifest.json` viewer: simply displays a JSON-prettified version of the extension’s manifest.
-* Fingerprint Analysis: Detection of `web_accessible_resources` and automatic generation of Chrome extension fingerprinting JavaScript.
+* Detection of `web_accessible_resources`
 * Potential Clickjacking Analysis: Detection of extension HTML pages with the `web_accessible_resources` directive set. These are potentially vulnerable to clickjacking depending on the purpose of the pages.
 * Permission Warning(s) viewer: which shows a list of all the Chrome permission prompt warnings which will be displayed upon a user attempting to install the extension.
 * Dangerous Function(s): shows the location of dangerous functions which could potentially be exploited by an attacker (e.g. functions such as innerHTML, chrome.tabs.executeScript).
@@ -53,5 +51,3 @@ Pulls any Chrome extension from a provided Chrome webstore link.
 * Download extension and formatted versions.
 * Download the original extension.
 * Download a beautified version of the extension (auto prettified HTML and JavaScript).
-* Automatic caching of scan results, running an extension scan will take a good amount of time the first time you run it. However the second time, assuming the extension hasn’t been updated, will be almost instant due to the results being cached.
-Linkable Report URLs, easily link someone else to an extension report generated by tarnish.

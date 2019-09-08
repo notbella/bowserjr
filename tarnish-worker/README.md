@@ -1,1 +1,0 @@
-# tarnish-worker
