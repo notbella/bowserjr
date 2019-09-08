@@ -13,6 +13,8 @@ import zipfile
 import io
 import hashlib
 import string
+import shutil
+import html
 
 from bs4 import BeautifulSoup
 from libs.cspparse import *
@@ -89,6 +91,9 @@ PERMISSIONS_DATA = get_json_from_file(current_dir + "/configs/permissions.json",
 JAVASCRIPT_INDICATORS = get_json_from_file(
     current_dir + "/configs/javascript_indicators.json", False
 )
+
+STATIC_DIR = os.path.join(current_dir, "template/static")
+REPORT_TEMPLATE = open(os.path.join(current_dir, "template/report.html")).read()
 
 CSP_KNOWN_BYPASSES = {
     "script-src": [
@@ -1006,10 +1011,12 @@ def get_report_data(chrome_extension_id, output_path):
     beautified_extension.close()
     regular_extension.close()
 
-    manifest_path   = output_path + "/" + chrome_extension_id + "/manifest_" + report_data["manifest"]["version"] + ".json"
-    report_path     = output_path + "/" + chrome_extension_id + "/report_" + report_data["manifest"]["version"] + ".json"
-    extension_path  = output_path + "/" + chrome_extension_id + "/extension_" + report_data["manifest"]["version"] + ".zip"
-    beautified_path = output_path + "/" + chrome_extension_id + "/beautified_extension_" + report_data["manifest"]["version"] + ".zip"
+    manifest_path    = output_path + "/" + chrome_extension_id + "/manifest_" + report_data["manifest"]["version"] + ".json"
+    report_json_path = output_path + "/" + chrome_extension_id + "/report_" + report_data["manifest"]["version"] + ".json"
+    report_html_path = output_path + "/" + chrome_extension_id + "/report_" + report_data["manifest"]["version"] + ".html"
+    extension_path   = output_path + "/" + chrome_extension_id + "/extension_" + report_data["manifest"]["version"] + ".zip"
+    beautified_path  = output_path + "/" + chrome_extension_id + "/beautified_extension_" + report_data["manifest"]["version"] + ".zip"
+    static_path      = output_path + "/" + chrome_extension_id + "/static"
 
     # Upload manifest.json to file system for later aggregation
     write_to_fs(
@@ -1028,8 +1035,21 @@ def get_report_data(chrome_extension_id, output_path):
     )
 
     write_to_fs(
-        report_path,
+        report_json_path,
         prettify_json(report_data),
+    )
+
+    # copy static directory to output path
+    if os.path.exists(static_path):
+        shutil.rmtree(static_path)
+
+    shutil.copytree(STATIC_DIR, static_path)
+
+    # templatize report
+    report_html = REPORT_TEMPLATE.replace("___REPORT_DATA___", html.escape(json.dumps(report_data), quote=False))
+    write_to_fs(
+        report_html_path,
+        bytes(report_html, 'utf-8')
     )
 
     return report_data
