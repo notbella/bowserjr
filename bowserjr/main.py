@@ -2,19 +2,21 @@
 # coding=utf8
 # -*- coding: utf8 -*-
 # vim: set fileencoding=utf8 :
-import os
-import sys
-import uuid
-import time
-import json
-import requests
-import jsbeautifier
-import zipfile
-import io
+import base64
 import hashlib
-import string
-import shutil
 import html
+import io
+import json
+import os
+import shutil
+import string
+import sys
+import time
+import uuid
+import zipfile
+
+import jsbeautifier
+import requests
 
 from bs4 import BeautifulSoup
 from libs.cspparse import *
@@ -1045,8 +1047,10 @@ def get_report_data(chrome_extension_id, output_path):
 
     shutil.copytree(STATIC_DIR, static_path)
 
-    # templatize report
-    report_html = REPORT_TEMPLATE.replace("___REPORT_DATA___", html.escape(json.dumps(report_data), quote=False))
+    # templatize report in 3 stages: json -> base64 -> html
+    report_html = bytes(json.dumps(report_data), 'utf-8')
+    report_html = str(base64.b64encode(report_html), 'utf-8')
+    report_html = REPORT_TEMPLATE.replace("___REPORT_DATA___", report_html)
     write_to_fs(
         report_html_path,
         bytes(report_html, 'utf-8')

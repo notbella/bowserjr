@@ -553,7 +553,7 @@
       }
 
       app.menu = "manifest";
-      app.report_data = ___REPORT_DATA___;
+      app.report_data = JSON.parse(atob("___REPORT_DATA___"));
       _initialize();
     </script>
 </body>
