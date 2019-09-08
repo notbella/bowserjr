@@ -84,7 +84,7 @@
                         </li>
                         <li class="nav-item csp-nav">
                             <a class="nav-link" href="#">
-                                <span data-feather="shield"></span> Content Security Policy <span class="badge badge-pill badge-primary">{{report_data.csp_report.length}}</span>
+                                <span data-feather="shield"></span> Content Security Policy <span class="badge badge-pill badge-primary">{{report_data.csp_findings.length}}</span>
                             </a>
                         </li>
                         <li class="nav-item known-vulnerable-libraries-nav">
@@ -327,22 +327,20 @@
                 <!-- END OF dangerous-functions -->
                 <div v-if="menu == 'csp'" class="csp-dashboard">
                     <h1>Content Security Policy (CSP) Report</h1>
-                    <code><h3>{{report_data.content_security_policy}}</h3></code>
+                    <code><h6>{{report_data.content_security_policy}}</h6></code>
                     <hr />
-                    <div class="card border-secondary mb-3" v-for="csp_issue in report_data.csp_report">
-                        <div class="card-header"><b>{{csp_issue.name}}</b></div>
+                    <div class="card border-secondary mb-3" v-for="csp_finding in report_data.csp_findings">
+                        <div class="card-header"><b>{{csp_finding.directive}}: {{csp_finding.value}}</b></div>
                         <div class="card-body">
                             <p class="card-text">
-                                <b>Risk</b>: <code>{{csp_issue.risk.toUpperCase()}}</code>
+                                <b>Risk</b>: <code>{{csp_severity(csp_finding.severity)}}</code>
                                 <br />
-                                <b>Description</b>: <span style="display: inline">{{csp_issue.description}}</span>
+                                <b>Description</b>: <span style="display: inline">{{csp_finding.description}}</span>
                             </p>
                         </div>
                     </div>
                     <hr />
-                    <p>
-                        Special thanks to <a target="_blank" href="https://twitter.com/littlejoetables">Moloch</a> for the Python <a target="_blank" href="https://github.com/moloch--/CSP-Bypass">CSP-Bypass library</a> and the following folks for their CSP-bypass lists: <a target="_blank" href="https://github.com/google/csp-evaluator">Google's CSP Evaluator Core Library</a>, <a target="_blank" href="https://github.com/GoSecure/csp-auditor/">GoSecure CSP Auditor</a>, and <a target="_blank" href="https://github.com/mozilla/http-observatory/">Mozilla HTTP Observatory</a>.
-                    </p>
+                    <p>CSP evaluator findings thanks to <a href="https://csp-evaluator.withgoogle.com">https://csp-evaluator.withgoogle.com</a></p>
                 </div>
                 <!-- END OF csp -->
                 <div v-if="menu == 'fingerprintable-resources'" class="fingerprintable-resources-dashboard">
@@ -393,6 +391,7 @@
     <script src="static/js/bootstrap.min.js"></script>
     <script src="static/js/feather.min.js"></script>
     <script src="static/js/highlight.min.js"></script>
+    <script src="static/js/evaluator_binary.js"></script>
     <script>
         Vue.directive('highlightjs', {
         deep: true,
@@ -451,6 +450,12 @@
               this["visible_" + filterables[q]] = indicator_names_array;
               this["static_" + filterables[q]] = indicator_names_array;
             }
+            // Load CSP evaluator from https://github.com/google/csp-evaluator
+            var rawCsp = app.report_data.content_security_policy;
+            var parser = new csp.CspParser(rawCsp);
+            var evaluator = new csp.CspEvaluator(parser.csp, csp.Version.CSP3);
+            var findings = evaluator.evaluate();
+            app.report_data.csp_findings = findings.sort((a, b) => a.severity - b.severity );
           },
           hide_visible: function(event) {
             console.log("Hide visible event: ");
@@ -472,6 +477,18 @@
             );
             console.log(this["visible_" + visible_class]);
             menu_update();
+          },
+          csp_severity: function(sev) {
+            return {
+              10: "High",
+              20: "Syntax",
+              30: "Medium",
+              40: "High (maybe)",
+              45: "Strict CSP",
+              50: "Medium (maybe)",
+              60: "Info",
+              100: "None"
+            }[sev];
           }
         }
       });
