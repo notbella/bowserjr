@@ -7,7 +7,6 @@ import sys
 import uuid
 import time
 import json
-import yaml
 import requests
 import jsbeautifier
 import zipfile
