@@ -2,6 +2,8 @@
 
 ![](logo.png)
 
+![Docker Cloud Automated build](https://img.shields.io/docker/cloud/automated/belladc/bowserjr)
+
 `BowserJr` is a static analysis tool that automates the process of reviewing a Chrome extension for potential security issues. This tool is a rework of the tool [tarnish](https://github.com/mandatoryprogrammer/tarnish) that streamlines and expands the functionality.
 
 ## Usage
