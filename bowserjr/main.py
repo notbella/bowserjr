@@ -2,20 +2,23 @@
 # coding=utf8
 # -*- coding: utf8 -*-
 # vim: set fileencoding=utf8 :
-import os
-import sys
-import uuid
-import time
-import json
-import requests
-import jsbeautifier
-import zipfile
-import io
+import base64
 import hashlib
+import html
+import io
+import json
+import os
+import shutil
 import string
+import sys
+import time
+import uuid
+import zipfile
+
+import jsbeautifier
+import requests
 
 from bs4 import BeautifulSoup
-from libs.cspparse import *
 from distutils.version import LooseVersion, StrictVersion
 
 # avoid catastrophic backtracking
@@ -90,127 +93,8 @@ JAVASCRIPT_INDICATORS = get_json_from_file(
     current_dir + "/configs/javascript_indicators.json", False
 )
 
-CSP_KNOWN_BYPASSES = {
-    "script-src": [
-        # (DOMAIN, DESCRIPTION/EXAMPLE,)
-        # Pulled from various sources:
-        # https://github.com/GoSecure/csp-auditor/blob/master/csp-auditor-core/src/main/resources/resources/data/csp_host_vulnerable_js.txt
-        # https://github.com/mozilla/http-observatory/blob/5c52b6bfdfc0a2f1f83b38fd097c5f8cbeef3e6d/httpobs/conf/bypasses/jsonp.json
-        (
-            "ajax.googleapis.com",
-            """
-Additional information is available here:  https://github.com/cure53/XSSChallengeWiki/wiki/H5SC-Minichallenge-3:-%22Sh*t,-it%27s-CSP!%22
-
-Example Payload:
-"><script src=//ajax.googleapis.com/ajax/services/feed/find?v=1.0%26callback=alert%26context=1337></script>
-		""",
-        ),
-        (
-            "raw.githubusercontent.com",
-            """
-This is a hostname of which anyone can upload content. This host is used when viewing uploaded Github repo files in "raw".
-
-Example:
-https://github.com/mandatoryprogrammer/sonar.js/blob/master/sonar.js -> https://raw.githubusercontent.com/mandatoryprogrammer/sonar.js/master/sonar.js
-		""",
-        ),
-        (
-            "github.io",
-            """
-This is a shared hostname of which anyone can upload content. This domain for Github pages (https://pages.github.com/) which allows you to host content on github.io via repo commits.
-		""",
-        ),
-        (
-            "*.s3.amazonaws.com",
-            """
-This is a shared hostname of which anyone can upload content. Any user can add content to this host via Amazon AWS's S3 offering (https://aws.amazon.com/s3/).
-		""",
-        ),
-        (
-            "*.cloudfront.com",
-            """
-This is a shared hostname of which anyone can upload content. Any user can add content to this host via Amazon's Cloudfront CDN offering (https://aws.amazon.com/cloudfront/).
-		""",
-        ),
-        (
-            "*.herokuapp.com",
-            """
-This is a shared hostname of which anyone can upload content. Any user can add content to this host via Heroku's app offering (https://www.heroku.com/platform).
-		""",
-        ),
-        (
-            "dl.dropboxusercontent.com",
-            """
-This is a shared hostname of which anyone can upload content. Any user can add content to this host via uploading content to their Dropbox account (https://www.dropbox.com/) and getting the web download link for it.
-		""",
-        ),
-        (
-            "*.appspot.com",
-            """
-This is a shared hostname of which anyone can upload content. Any user can add content to this host via creating a Google AppEngine app (https://cloud.google.com/appengine/).
-		""",
-        ),
-        (
-            "*.googleusercontent.com",
-            """
-This is a shared hostname of which anyone can upload content. Any user can add content to this host via uploading to various Google services. 
-		""",
-        ),
-        (
-            "cdn.jsdelivr.net",
-            """
-This is a shared hostname of which anyone can upload content. Any user can add content to this host via uploading a package to npm (https://www.npmjs.com/) which will then be proxy hosted on this host (https://www.jsdelivr.com/features).
-		""",
-        ),
-        (
-            "cdnjs.cloudflare.com",
-            """
-This host serves old version of the Angular library. Hosts that serve old Angular libraries can be used to bypass Content Security Policy (CSP) in ways similar to the following:
-<body class="ng-app"ng-csp ng-click=$event.view.alert(1337)>
-
-<script src="https://cdnjs.cloudflare.com/ajax/libs/angular.js/1.0.8/angular.js"></script>
-
-More information about older Angular version sandboxing (or lack of) and various escapes can be read about here:
-http://blog.portswigger.net/2017/05/dom-based-angularjs-sandbox-escapes.html
-		""",
-        ),
-        (
-            "code.angularjs.org",
-            """
-This host serves old version of the Angular library. Hosts that serve old Angular libraries can be used to bypass Content Security Policy (CSP) in ways similar to the following:
-<body class="ng-app"ng-csp ng-click=$event.view.alert(1337)>
-
-<script src="https://code.angularjs.org/1.0.8/angular.js"></script>
-
-More information about older Angular version sandboxing (or lack of) and various escapes can be read about here:
-http://blog.portswigger.net/2017/05/dom-based-angularjs-sandbox-escapes.html
-		""",
-        ),
-        (
-            "d.yimg.com",
-            """
-This host contains a JSONP endpoint which can be used to bypass Content Security Policy (CSP):
-<script src="http://d.yimg.com/autoc.finance.yahoo.com/autoc?callback=alert&query=yah&lang=en&region=us"></script>
-		""",
-        ),
-        (
-            "www.linkedin.com",
-            """
-This host contains a JSONP endpoint which can be used to bypass Content Security Policy (CSP):
-<script src="https://www.linkedin.com/countserv/count/share?url=https://example.com&format=jsonp&callback=test"></script>
-		""",
-        ),
-        (
-            "*.wikipedia.org",
-            """
-This host contains a JSONP endpoint which can be used to bypass Content Security Policy (CSP):
-<script src="https://en.wikipedia.org/w/api.php?action=opensearch&format=json&limit=5&callback=test&search=test"></script>
-<script src="https://se.wikipedia.org/w/api.php?action=opensearch&format=json&limit=5&callback=test&search=test"></script>
-<script src="https://ru.wikipedia.org/w/api.php?action=opensearch&format=json&limit=5&callback=test&search=test"></script>
-		""",
-        ),
-    ]
-}
+STATIC_DIR = os.path.join(current_dir, "template/static")
+REPORT_TEMPLATE = open(os.path.join(current_dir, "template/report.html")).read()
 
 class RetireJS(object):
     """
@@ -449,127 +333,6 @@ def ends_in_ext_list(target_string, ext_list):
     return False
 
 
-def get_csp_report(csp_object):
-    """
-	Much of this is taken from: https://github.com/moloch--/CSP-Bypass/
-	Credits to moloch--, he can't hang but he can code :)
-
-	return_data = [
-		{
-			"name": "",
-			"description": "",
-			"risk": "",
-		}
-	]
-	"""
-    return_data = []
-
-    """ Checks the current CSP header for unsafe content sources """
-    for directive in [SCRIPT_SRC]:
-        if UNSAFE_EVAL in csp_object[directive]:
-            return_data.append(
-                {
-                    "name": "Unsafe Eval",
-                    "description": "Extension allows unsafe evaluation of JavaScript via eval().",
-                    "risk": "high",
-                }
-            )
-        if UNSAFE_INLINE in csp_object[directive]:
-            return_data.append(
-                {
-                    "name": "Unsafe Inline",
-                    "description": "Extension allows unsafe evaluation of JavaScript via inline <script>, and event handlers.",
-                    "risk": "high",
-                }
-            )
-
-    """
-	Check content sources for wildcards '*' note that wilcard subdomains
-	are checked by `wildcardSubdomainContentSourceCheck'
-	"""
-    for directive, sources in csp_object.items():
-        if sources is None:
-            continue  # Skip unspecified directives in NO_FALLBACK
-        if any(src == "*" for src in sources):
-            return_data.append(
-                {
-                    "name": "Wildcard Source for Directive '" + directive + "'",
-                    "description": "Wildcard sources specified for directive "
-                    + directive,
-                    "risk": "medium",
-                }
-            )
-
-    """ Check content sources for wildcards subdomains '*.foo.com' """
-    for directive, sources in csp_object.items():
-        if sources is None:
-            continue
-        # This check is a little hacky but should work well
-        # the shortest subdomain string should be like *.a.bc
-        if any("*" in src and 5 <= len(src) for src in sources):
-            return_data.append(
-                {
-                    "name": "Wildcard Source for Directive '" + directive + "'",
-                    "description": "Wildcard sources specified for directive "
-                    + directive,
-                    "risk": "medium",
-                }
-            )
-
-    """
-	Check for missing directives that do not inherit from `default-src'
-	"""
-    for directive in ContentSecurityPolicy.NO_FALLBACK:
-        if directive not in csp_object:
-            return_data.append(
-                {
-                    "name": "Missing CSP Directive '" + directive + "'",
-                    "description": "Lack of CSP directive '"
-                    + directive
-                    + "', which does not inherit from default-src.",
-                    "risk": "low",
-                }
-            )
-
-    """
-	Parses the CSP for known bypasses, this check is a little more
-	complicated, and calls into other subroutines.
-	"""
-    for directive, known_bypasses in CSP_KNOWN_BYPASSES.items():
-        bypasses = _bypassCheckDirective(csp_object, directive, known_bypasses)
-        for bypass in bypasses:
-            return_data.append(
-                {
-                    "name": "CSP Bypass Possible",
-                    "description": "CSP allows a script source with known bypasses: '"
-                    + bypass[0]
-                    + "'.",
-                    "risk": "high",
-                    "bypass": bypass[1],
-                }
-            )
-
-    return return_data
-
-
-def _bypassCheckDirective(csp, directive, known_bypasses):
-    """
-	Check an individual directive (e.g. `script-src') to see if it contains
-	any domains that host known CSP bypasses.
-	"""
-    bypasses = []
-    for src in csp[directive]:
-        if src.startswith("'") or src in [HTTP, HTTPS, DATA, BLOB]:
-            continue  # We only care about domains
-
-        # Iterate over all bypasses and check if `src' allows loading
-        # content from `domain' if so, we have a bypass!
-        for domain, payload in known_bypasses:
-            if csp_match_domains(src, domain):
-                bypasses.append((domain, payload))
-    return bypasses
-
-
 def get_lowercase_list(input_list):
     return_list = []
     for item in input_list:
@@ -623,22 +386,11 @@ def get_report_data(chrome_extension_id, output_path):
 
     # Parse CSP policy
     if "content_security_policy" in manifest_data:
-        csp_object = ContentSecurityPolicy(
-            "content-security-policy", manifest_data["content_security_policy"]
-        )
         report_data["content_security_policy"] = manifest_data[
             "content_security_policy"
         ]
     else:
-        csp_object = ContentSecurityPolicy(
-            "content-security-policy", "script-src 'self'; object-src 'self'"
-        )
         report_data["content_security_policy"] = "script-src 'self'; object-src 'self'"
-
-    # Scan for CSP bypasses and other issues
-    csp_report = get_csp_report(csp_object)
-
-    report_data["csp_report"] = csp_report
 
     # Go through permission(s) and return info about them.
     permissions_info = []
@@ -1006,10 +758,12 @@ def get_report_data(chrome_extension_id, output_path):
     beautified_extension.close()
     regular_extension.close()
 
-    manifest_path   = output_path + "/" + chrome_extension_id + "/manifest_" + report_data["manifest"]["version"] + ".json"
-    report_path     = output_path + "/" + chrome_extension_id + "/report_" + report_data["manifest"]["version"] + ".json"
-    extension_path  = output_path + "/" + chrome_extension_id + "/extension_" + report_data["manifest"]["version"] + ".zip"
-    beautified_path = output_path + "/" + chrome_extension_id + "/beautified_extension_" + report_data["manifest"]["version"] + ".zip"
+    manifest_path    = output_path + "/" + chrome_extension_id + "/manifest_" + report_data["manifest"]["version"] + ".json"
+    report_json_path = output_path + "/" + chrome_extension_id + "/report_" + report_data["manifest"]["version"] + ".json"
+    report_html_path = output_path + "/" + chrome_extension_id + "/report_" + report_data["manifest"]["version"] + ".html"
+    extension_path   = output_path + "/" + chrome_extension_id + "/extension_" + report_data["manifest"]["version"] + ".zip"
+    beautified_path  = output_path + "/" + chrome_extension_id + "/beautified_extension_" + report_data["manifest"]["version"] + ".zip"
+    static_path      = output_path + "/" + chrome_extension_id + "/static"
 
     # Upload manifest.json to file system for later aggregation
     write_to_fs(
@@ -1028,8 +782,23 @@ def get_report_data(chrome_extension_id, output_path):
     )
 
     write_to_fs(
-        report_path,
+        report_json_path,
         prettify_json(report_data),
+    )
+
+    # copy static directory to output path
+    if os.path.exists(static_path):
+        shutil.rmtree(static_path)
+
+    shutil.copytree(STATIC_DIR, static_path)
+
+    # templatize report in 3 stages: json -> base64 -> html
+    report_html = bytes(json.dumps(report_data), 'utf-8')
+    report_html = str(base64.b64encode(report_html), 'utf-8')
+    report_html = REPORT_TEMPLATE.replace("___REPORT_DATA___", report_html)
+    write_to_fs(
+        report_html_path,
+        bytes(report_html, 'utf-8')
     )
 
     return report_data
