@@ -552,6 +552,9 @@ def get_lowercase_list(input_list):
     return return_list
 
 def get_report_data(chrome_extension_id, output_path):
+    print(("Downloading extension ID " + chrome_extension_id + "..."))
+    chrome_extension_id, chrome_extension_handler = get_chrome_extension(chrome_extension_id)
+
     report_data = {
         "extension_id": chrome_extension_id,
         "manifest": {},
@@ -565,9 +568,6 @@ def get_report_data(chrome_extension_id, output_path):
         "metadata": {},
         "permissions_info": [],
     }
-
-    print(("Downloading extension ID " + chrome_extension_id + "..."))
-    chrome_extension_handler = get_chrome_extension(chrome_extension_id)
 
     chrome_extension_zip = zipfile.ZipFile(chrome_extension_handler)
 
@@ -1157,30 +1157,46 @@ def scan_javascript(
     return matches
 
 
-def get_chrome_extension(extension_id):
-    """
-	Download given extension ID and return a Zip object of the resulting file.
-	"""
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.10; rv:49.0) Gecko/20100101 Firefox/49.0",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
-        "Accept-Encoding": "gzip, deflate, br",
-        "X-Same-Domain": "1",
-        "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
-        "Referer": "https://chrome.google.com/",
-    }
+def get_chrome_extension(extension):
+    if os.path.exists(extension):
+        # return handler to local file
+        if os.path.isfile(extension):
+            # path is file (.zip, probably) - return handler
+            chrome_extension_handler = open(extension, 'rb')
+            extension = os.path.splitext(extension)[0]
+        else:
+            # path is directory - create .zip file before returning handler
+            chrome_extension_handler = io.BytesIO()
+            zf = zipfile.ZipFile(chrome_extension_handler, mode='a')
+            for subdir, dirs, files in os.walk(extension):
+                for file in files:
+                    path = subdir + os.sep + file
+                    arcname = os.path.relpath(path, extension)
+                    zf.write(path, arcname)
+            zf.close()
+        extension = os.path.basename(os.path.abspath(extension))
+    else:
+    	# Download given extension ID and return a Zip object of the resulting file.
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.10; rv:49.0) Gecko/20100101 Firefox/49.0",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+            "Accept-Encoding": "gzip, deflate, br",
+            "X-Same-Domain": "1",
+            "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
+            "Referer": "https://chrome.google.com/",
+        }
 
-    response = requests.get(
-        "https://clients2.google.com/service/update2/crx?response=redirect&prodversion=49.0&x=id%3D~~~~%26installsource%3Dondemand%26uc".replace(
-            "~~~~", extension_id
-        ),
-        headers=headers,
-        timeout=(60 * 2),
-    )
-    chrome_extension_handler = io.BytesIO(response.content)
+        response = requests.get(
+            "https://clients2.google.com/service/update2/crx?response=redirect&prodversion=49.0&x=id%3D~~~~%26installsource%3Dondemand%26uc".replace(
+                "~~~~", extension
+            ),
+            headers=headers,
+            timeout=(60 * 2),
+        )
+        chrome_extension_handler = io.BytesIO(response.content)
 
-    return chrome_extension_handler
+    return extension, chrome_extension_handler
 
 if __name__ == "__main__":
     import argparse
