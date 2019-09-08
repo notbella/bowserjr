@@ -2,7 +2,6 @@
 # coding=utf8
 # -*- coding: utf8 -*-
 # vim: set fileencoding=utf8 :
-import re
 import os
 import sys
 import uuid
@@ -20,6 +19,10 @@ from bs4 import BeautifulSoup
 from libs.cspparse import *
 from distutils.version import LooseVersion, StrictVersion
 
+# avoid catastrophic backtracking
+import regex as re
+REGEX_TIMEOUT = 3
+
 # Taken from https://stackoverflow.com/questions/2319019/using-regex-to-remove-comments-from-source-files
 def remove_comments(string):
     pattern = r"(\".*?(?<!\\)\"|\'.*?(?<!\\)\')|(/\*.*?\*/|//[^\r\n]*$)"
@@ -35,7 +38,10 @@ def remove_comments(string):
         else:  # otherwise, we will return the 1st group
             return match.group(1)  # captured quoted-string
 
-    return regex.sub(_replacer, string)
+    try:
+        return regex.sub(_replacer, string, timeout=REGEX_TIMEOUT)
+    except TimeoutError:
+        return None
 
 
 # https://gist.github.com/seanh/93666
@@ -44,6 +50,15 @@ def format_filename(s):
     filename = "".join(c for c in s if c in valid_chars)
     filename = filename.replace(" ", "_")  # I don't like spaces in filenames.
     return filename
+
+
+def get_json_from_url(url):
+    """
+    Fetch JSON from a URL and return as a dict
+    """
+    print("Fetching JSON from " + url)
+    r = requests.get(url)
+    return r.json()
 
 
 def get_json_from_file(filename, should_remove_comments=False):
@@ -60,9 +75,17 @@ def get_json_from_file(filename, should_remove_comments=False):
 
 
 current_dir = os.path.dirname(os.path.realpath(__file__))
-RETIRE_JS_DEFINITIONS = get_json_from_file(
-    current_dir + "/configs/jsrepository.json", False
-)
+
+# Try to fetch updated RetireJS information, fall back to static file
+try:
+    RETIRE_JS_DEFINITIONS = get_json_from_url(
+        "https://raw.githubusercontent.com/RetireJS/retire.js/master/repository/jsrepository.json"
+    )
+except:
+    RETIRE_JS_DEFINITIONS = get_json_from_file(
+        current_dir + "/configs/jsrepository.json", False
+    )
+
 PERMISSIONS_DATA = get_json_from_file(current_dir + "/configs/permissions.json", False)
 JAVASCRIPT_INDICATORS = get_json_from_file(
     current_dir + "/configs/javascript_indicators.json", False
@@ -223,12 +246,18 @@ class RetireJS(object):
                 "(§§version§§)", "[a-z0-9\.\-]+"
             )
             filecontent_matcher = bytes(filecontent_matcher, 'utf-8')
-            match = re.search(filecontent_matcher, target_bytes)
+            try:
+                match = re.search(filecontent_matcher, target_bytes, timeout=REGEX_TIMEOUT)
+            except TimeoutError:
+                match = None
             if match:
                 # convert version match to str and operate on strings from now on
                 version_match = str(match.group(), 'utf-8')
                 for matcher_part in matcher_parts:
-                    matcher_match = re.search(matcher_part, version_match)
+                    try:
+                        matcher_match = re.search(matcher_part, version_match, timeout=REGEX_TIMEOUT)
+                    except TimeoutError:
+                        matcher_match = None
                     if matcher_match:
                         version_match = version_match.replace(
                             str(matcher_match.group()), ""
@@ -328,41 +357,38 @@ class RetireJS(object):
 
             for vulnerability in vulnerabilities:
                 match = False
+                try:
+                    matched_version = StrictVersion(matching_definition["version"])
+                    if "above" in vulnerability:
+                        version_above = StrictVersion(vulnerability["above"])
+                    if "below" in vulnerability:
+                        version_below = StrictVersion(vulnerability["below"])
+                    if "atOrAbove" in vulnerability:
+                        version_or_above = StrictVersion(vulnerability["atOrAbove"])
+                    if "atOrBelow" in vulnerability:
+                        version_or_below = StrictVersion(vulnerability["atOrBelow"])
+                except:
+                    continue
+
                 if matching_definition["version"].strip() == "":
                     match = False
                 elif "atOrAbove" in vulnerability and "below" in vulnerability:
-                    if LooseVersion(matching_definition["version"]) >= LooseVersion(
-                        vulnerability["atOrAbove"]
-                    ) and LooseVersion(matching_definition["version"]) < LooseVersion(
-                        vulnerability["below"]
-                    ):
+                    if matched_version >= version_or_above and matched_version < version_below:
                         match = True
                 elif "above" in vulnerability and "below" in vulnerability:
-                    if LooseVersion(matching_definition["version"]) > LooseVersion(
-                        vulnerability["above"]
-                    ) and LooseVersion(matching_definition["version"]) < LooseVersion(
-                        vulnerability["below"]
-                    ):
+                    if matched_version > version_above and matched_version < version_below:
                         match = True
                 elif "below" in vulnerability:
-                    if LooseVersion(matching_definition["version"]) < LooseVersion(
-                        vulnerability["below"]
-                    ):
+                    if matched_version < version_below:
                         match = True
                 elif "above" in vulnerability:
-                    if LooseVersion(matching_definition["version"]) > LooseVersion(
-                        vulnerability["above"]
-                    ):
+                    if matched_version > version_above:
                         match = True
                 elif "atOrAbove" in vulnerability:
-                    if LooseVersion(matching_definition["version"]) >= LooseVersion(
-                        vulnerability["atOrAbove"]
-                    ):
+                    if matched_version >= version_or_above:
                         match = True
                 elif "atOrBelow" in vulnerability:
-                    if LooseVersion(matching_definition["version"]) <= LooseVersion(
-                        vulnerability["atOrBelow"]
-                    ):
+                    if matched_version <= version_or_below:
                         match = True
 
                 if match:
@@ -552,7 +578,7 @@ def get_lowercase_list(input_list):
     return return_list
 
 def get_report_data(chrome_extension_id, output_path):
-    print(("Downloading extension ID " + chrome_extension_id + "..."))
+    print("Downloading extension ID " + chrome_extension_id + "...")
     chrome_extension_id, chrome_extension_handler = get_chrome_extension(chrome_extension_id)
 
     report_data = {
@@ -751,9 +777,14 @@ def get_report_data(chrome_extension_id, output_path):
                     re.escape(pre_regex).replace("starplaceholderstring", ".*")
                 )
                 for chrome_extension_path in chrome_ext_file_list:
-                    if regex_web_accessible_resource.search(
-                        "\/" + chrome_extension_path.lower()
-                    ):
+                    try:
+                        match = regex_web_accessible_resource.search(
+                            "\/" + chrome_extension_path.lower(),
+                            timeout=REGEX_TIMEOUT
+                        )
+                    except TimeoutError:
+                        match = None
+                    if match:
                         web_accessible_resources_paths.append(chrome_extension_path)
             elif web_accessible_resource.lower() in get_lowercase_list(
                 chrome_ext_file_list
@@ -877,8 +908,6 @@ def get_report_data(chrome_extension_id, output_path):
 
     # Check if the JS is in any web_resource_accessible pages
 
-    print("HTML beautified...")
-
     report_data["script_to_page_map"] = script_to_page_map
     report_data["active_pages"] = active_pages
 
@@ -912,7 +941,6 @@ def get_report_data(chrome_extension_id, output_path):
         if ends_in_ext_list(chrome_file_path, [".js"]):
             javascript_data = chrome_extension_zip.read(chrome_file_path)
 
-            print("Retire.js scan...")
             vulnerability_results = RETIRE_JS.check_file(
                 chrome_file_path, javascript_data
             )
@@ -922,12 +950,11 @@ def get_report_data(chrome_extension_id, output_path):
                     vulnerability_results[i]["file_path"] = chrome_file_path
                     report_data["retirejs"].append(vulnerability_results[i])
 
-            print(("Beautifying some JS..." + chrome_file_path))
+            print(chrome_file_path)
 
             # Beautify JS
             new_beautified_js = beautified_js(javascript_data)
             new_beautified_js = bytes(new_beautified_js, 'utf-8')
-            print("JS beautified!")
 
             # As long was we have it, write the beautified JS to the beautified extension .zip
             beautified_extension.writestr(chrome_file_path, new_beautified_js)
@@ -945,7 +972,6 @@ def get_report_data(chrome_extension_id, output_path):
                     scan_file = False
 
             if scan_file:
-                print("Scanning for risky functions...")
                 is_content_script = chrome_file_path in report_data["content_scripts"]
                 is_web_accessible_resource = (
                     chrome_file_path in report_data["web_accessible_javascript"]
@@ -963,7 +989,6 @@ def get_report_data(chrome_extension_id, output_path):
                     + risky_javascript_functions
                 )
 
-                print("Scanning for entry points...")
                 web_entrypoints = scan_javascript(
                     chrome_file_path,
                     new_beautified_js,
@@ -1108,7 +1133,11 @@ def check_indicators(
         # Regex indicator
         if indicator_data["regex"]:
             regex = re.compile(indicator_data["regex"], re.IGNORECASE)
-            if regex.search(javascript_lines[i]):
+            try:
+                match = regex.search(javascript_lines[i], timeout=REGEX_TIMEOUT)
+            except TimeoutError:
+                match = None
+            if match:
                 context_block = get_context_block(javascript_lines, i)
                 matches.append(
                     {
