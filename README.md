@@ -1,5 +1,7 @@
 # BowserJr
 
+![](logo.png)
+
 `BowserJr` is a static analysis tool that automates the process of reviewing a Chrome extension for potential security issues. This tool is a rework of the tool [tarnish](https://github.com/mandatoryprogrammer/tarnish) that streamlines and expands the functionality.
 
 ## Usage
@@ -21,7 +23,11 @@ The tool takes two command line arguments: `input` and `output`.
 
 ## Docker
 
-Coming soon! :)
+To avoid building the container yourself, use the pre-built container on [DockerHub](https://hub.docker.com/r/belladc/bowserjr).
+
+```
+docker run --rm -it -v "$(pwd):/host" -w /host belladc/bowserjr extension output
+```
 
 ## Features
 Pulls any Chrome extension from a provided Chrome webstore link or path to a local .zip file or directory with source code.
