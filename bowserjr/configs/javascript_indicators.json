@@ -188,6 +188,13 @@
 			"string": "chrome.debugger.getTargets(",
 			"regex": false,
 			"resources": [ "https://developer.chrome.com/extensions/debugger#type-TargetInfo" ]
+		},
+		{
+			"name": "Read from local storage",
+			"description": "Items stored in local storage can be tampered with. User-controllable parameters should not be used for security-relevant functionality.",
+			"string": "localStorage.getItem(",
+			"regex": false,
+			"resources": [ "https://developer.mozilla.org/en-US/docs/Web/API/Web_Storage_API#localStorage" ]
 		}
 	],
 	"risky_functions": [

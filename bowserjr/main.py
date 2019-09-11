@@ -963,6 +963,9 @@ def get_chrome_extension(extension):
             extension = os.path.splitext(extension)[0]
         else:
             # path is directory - create .zip file before returning handler
+            if not os.path.exists(extension + "/manifest.json"):
+                print("Expected manifest.json in directory: " + extension)
+                sys.exit(1)
             chrome_extension_handler = io.BytesIO()
             zf = zipfile.ZipFile(chrome_extension_handler, mode='a')
             for subdir, dirs, files in os.walk(extension):

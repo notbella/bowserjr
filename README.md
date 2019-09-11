@@ -1,6 +1,6 @@
 # BowserJr
 
-![](logo.png)
+![](assets/logo.png)
 
 ![Docker Cloud Automated build](https://img.shields.io/docker/cloud/automated/belladc/bowserjr)
 
@@ -30,6 +30,8 @@ To avoid building the container yourself, use the pre-built container on [Docker
 ```
 docker run --rm -it -v "$(pwd):/host" -w /host belladc/bowserjr extension output
 ```
+
+![](assets/output.png)
 
 ## Features
 Pulls any Chrome extension from a provided Chrome webstore link or path to a local .zip file or directory with source code.
