@@ -1,4 +1,4 @@
-requests==2.22.0
+requests==2.31.0
 jsbeautifier==1.10.2
 beautifulsoup4==4.8.0
 regex==2019.08.19
